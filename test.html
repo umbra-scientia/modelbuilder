@@ -1,0 +1,10 @@
+<script src="mob.js"></script>
+<script src="mob-reflex.js"></script>
+<script src="mob-model.js"></script>
+<script>
+var m = new Model();
+m.AddBlock(new Reflex({hidden_shape: [4,1]}));
+var f = m.Compile([mob.sym("x"), mob.sym("y"), mob.sym("z")]);
+var code = mob.compile_glsl(f.output[0]);
+document.write("<pre>"+code.libs+code.code+code.value+"</pre>");
+</script>
