@@ -246,11 +246,21 @@ var mob = {
     compile_glsl: function(x, o) {
         if (!x) return false;
         if (!o) {
-            o = mob.compile_glsl(x, {value: "", temps: {}, imports: {}});
-            o.code = "";
+            var o = {temps:{}, imports: {}, value: []};
+            if (Array.isArray(x)) {
+                for(var i=0;i<x.length;i++) {
+                    var oo = mob.compile_glsl(x[i], {value: "", temps: {}, imports: {}});
+                    for(var k in oo.temps) o.temps[k] = oo.temps[k];
+                    for(var k in oo.imports) o.imports[k] = oo.imports[k];
+                    o.value.push(oo.value);
+                }
+            } else {
+                o = mob.compile_glsl(x, {value: "", temps: {}, imports: {}});
+            }
             var keys = Object.keys(o.temps).sort(function(l, r) {
                 return parseInt(l) < parseInt(r);
             });
+            o.code = "";
             for(var i=0;i<keys.length;i++) {
                 o.code += "float t"+keys[i]+" = "+o.temps[keys[i]]+";\n";
             }

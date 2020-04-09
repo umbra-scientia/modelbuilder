@@ -19,12 +19,15 @@ Model.prototype.RemoveBlock = function(x) {
         x.model = undefined;
     }
 }
-Model.prototype.Compile = function(inputs) {
+Model.prototype.Compile = function() {
     this.code = {};
-    var tmp = inputs;
+    var tmp = this.input;
     for(var k in this.blocks) {
         tmp = this.blocks[k].Compile(tmp);
         this.code[k] = tmp;
     }
     return tmp;
+}
+Model.prototype.SetInput = function(x) {
+    this.input = x;
 }
