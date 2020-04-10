@@ -169,6 +169,8 @@ var mob = {
                             } else {
                                 return mob.sym(ks + x.symbol.substr(k.length));
                             }
+                        } else if (typeof(ks) == "function") {
+                            return ks(numbero);
                         } else {
                             return mob.subst(ks, {"$": mob.num(numbero)});
                         }
@@ -249,13 +251,13 @@ var mob = {
             var o = {temps:{}, imports: {}, value: []};
             if (Array.isArray(x)) {
                 for(var i=0;i<x.length;i++) {
-                    var oo = mob.compile_glsl(x[i], {value: "", temps: {}, imports: {}});
+                    var oo = mob.compile_glsl(mob.reduce(x[i]), {value: "", temps: {}, imports: {}});
                     for(var k in oo.temps) o.temps[k] = oo.temps[k];
                     for(var k in oo.imports) o.imports[k] = oo.imports[k];
                     o.value.push(oo.value);
                 }
             } else {
-                o = mob.compile_glsl(x, {value: "", temps: {}, imports: {}});
+                o = mob.compile_glsl(mob.reduce(x), {value: "", temps: {}, imports: {}});
             }
             var keys = Object.keys(o.temps).sort(function(l, r) {
                 return parseInt(l) < parseInt(r);
@@ -292,7 +294,7 @@ var mob = {
         var s = "(";
         for(var i=0;i<x.args.length;i++) {
             if (s != "(") s += oper;
-            if (x.args[i].op == 'num' || x.args[i].op == 'sym') {
+            if (x.args[i].op == 'num' || x.args[i].op == 'sym') {// || (x.args[i].op == 'add' && Math.random() < 0.9) || (x.args[i].op == 'mul' && Math.random() < 0.5)) {
                 var id = x.args[i].id;
                 var r = mob.compile_glsl(x.args[i], o);
                 s += r.value;
@@ -363,7 +365,7 @@ var mob = {
         sinc_d: function(x) {return Math.cos(x*Math.PI) / x - Math.sin(x*Math.PI) / (x*x*Math.PI);},
     },
     numer_glsl: {
-        exp: true,
+        exp: {code:"float mob_numer_exp(float x) {return exp(clamp(x, -25.0, 25.0));}", builtin: true},
         log: true,
         sqrt: true,
         sin: true, cos: true,
@@ -379,12 +381,130 @@ var mob = {
         coth: {code:"float mob_numer_coth(float x) {return 1.0/mob_numer_tanh(x);}", imports:["tanh"]},
         erf: {code:"float mob_numer_erf(float x) {x=clamp(x,-5.0,5.0);float s=(x<0.0)?-1.0:1.0;float y=1.0/(1.0+x*0.3275911);return s-s*exp(-x*x)*y*(0.254829592+y*(-0.284496736+y*(1.421413741+y*(-1.453152027+y*1.061405429))));}"},
         gelu: {code:"float mob_numer_gelu(float x) {return x*(0.5+0.5*mob_numer_erf(x*0.7071067811865475));}", imports:["erf"]},
-        gelu_d: {code:"float mob_numer_gelu_d(float x) {return (0.5+0.5*mob_numer_erf(x*0.7071067811865475)) + exp(-0.5*x*x)*x*0.3989422804014327;}", imports:["erf"]},
+        gelu_d: {code:"float mob_numer_gelu_d(float x) {return (0.5+0.5*mob_numer_erf(x*0.7071067811865475)) + mob_numer_exp(-0.5*x*x)*x*0.3989422804014327;}", imports:["erf","exp"]},
         relu: {code:"float mob_numer_relu(float x) {return max(x,0.0);}"},
         relu_d: {code:"float mob_numer_relu_d(float x) {return (x<0.0)?0.0:1.0;}"},
         sigmoid: {code:"float mob_numer_sigmoid(float x) {return 1.0/(1.0+exp(clamp(-x, -25.0, 25.0)));}"},
         sigmoid_d: {code:"float mob_numer_sigmoid_d(float x) {x=exp(clamp(x, -25.0, 25.0));return 1.0/(2.0+x+1.0/x);}"},
         sinc: {code:"float mob_numer_sinc(float x) {return sin(x*3.141592653589793)*0.3183098861837907/x;}"},
         sinc_d: {code:"float mob_numer_sinc(float x) {float ix=1.0/x;return ix*(cos(x*3.141592653589793)-ix*sin(x*3.141592653589793)*0.3183098861837907);}"}
+    },
+    tensor: {
+        map: function(shape, f, x) {
+            var out = [];
+            var tmp = shape.slice();
+            var elem_dim = tmp.shift();
+            var size = elem_dim;
+            var outer_dim = false;
+            while (tmp.length) {
+                var dim = tmp.pop();
+                if (!outer_dim) outer_dim = dim;
+                size *= dim;
+            }
+            if (x && (typeof(x) != "object" || x.length == size)) {
+                throw new Error("tensor.shape.map: input argument must match the given shape");
+            }
+            for(var i=0;i<size;i+=elem_dim) {
+                var v = x ? [] : false;
+                if (x) for(var j=0;j<elem_dim;j++) v.push(x[i+j]);
+                var y = f(i, elem_dim, v);
+                if (!Array.isArray(y)) {
+                    if (elem_dim == 1) {
+                        if (typeof(y) == "number") {
+                            y = [mob.num(y)];
+                        } else if (typeof(y) == "string") {
+                            y = [mob.sym(y)];
+                        } else if (typeof(y) == "object" && y.op) {
+                            y = [y];
+                        } else {
+                            throw new Error("tensor.map: Failed to convert return value to a math type");
+                        }
+                    }
+                    if (y.length != elem_dim) throw new Error("tensor.map: Callback must return arrays of size "+elem_dim);
+                }
+                out = out.concat(y);
+            }
+            out.shape = shape;
+            return out;
+        },
+        map1: function(shape, f, x) {
+            var r = mob.tensor.map([1].concat(shape), f, x);
+            r.shape.shift();
+            return r;
+        },
+        eq: function(l,r) {
+            if (l.length != r.length) return false;
+            for(var i=0;i<l.length;i++) {
+                if (l[i] != r[i]) return false;
+            }
+            return true;
+        },
+        sym: function(shape, str) {
+            return mob.tensor.map1(shape, function(i) {return str+"["+i+"]";});
+        },
+        num: function(shape, num) {
+            return mob.tensor.map1(shape, function() {return num;});
+        },
+        fun: function(f, x, y) {
+            return mob.tensor.map1(x.shape, function(i) {return mob.fun(f, x[i], y ? y[i] : undefined);});
+        },
+        add: function(x, y) {return mob.tensor.fun("add", x, y);},
+        sub: function(x, y) {return mob.tensor.fun("sub", x, y);},
+        mul: function(x, y) {return mob.tensor.fun("mul", x, y);},
+        div: function(x, y) {return mob.tensor.fun("div", x, y);},
+        dot: function(x, y) {
+            if (x.length != y.length) throw new Error("tensor.dot: Inputs must have same number of elements.");
+            var sum = [];
+            for(var i=0;i<x.length;i++) {
+                sum.push(mob.mul(x[i], y[i]));
+            }
+            var r = [mob.sum(sum)];
+            r.shape = [1];
+            return r;
+        },
+        length: function(x) {
+            var sum = [];
+            for(var i=0;i<x.length;i++) {
+                sum.push(mob.mul(x[i], x[i]));
+            }
+            var r = [mob.sqrt(mob.sum(sum))];
+            r.shape = [1];
+            return r;
+        },
+        softmax: function(x) {
+            var r = [];
+            for(var i=0;i<x.length;i++) {
+                r.push(mob.exp(x[i]));
+            }
+            var rsum = mob.sum(r);
+            var scale = mob.recip(rsum);
+            for(var i=0;i<x.length;i++) {
+                r[i] = mob.mul(r[i], scale);
+            }
+            r.shape = x.shape;
+            return r;
+        }
+    },
+    layer: {
+        FullyConnected: function(options) {
+            var f = function(tensor) {
+                var params = [];
+                var neurons = mob.tensor.map1(f.output_shape, function(i) {
+                    var sum = [];
+                    for(var i=0;i<tensor.length;i++) {
+                        var wt = mob.sym("w"+mob.next_id++);
+                        sum.push(mob.mul(wt, tensor[i]));
+                        params.push(wt);
+                    }
+                    return mob.fun(f.activation, mob.sum(sum));
+                });
+                neurons.params = params;
+                return neurons;
+            };
+            f.output_shape = [1];
+            f.activation = "gelu";
+            if (options) for(var k in options) f[k] = options[k];
+            return f;
+        }
     }
 };

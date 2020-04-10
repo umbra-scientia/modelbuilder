@@ -1,11 +1,8 @@
 <script src="mob.js"></script>
-<script src="mob-reflex.js"></script>
-<script src="mob-model.js"></script>
 <script>
-var m = new Model();
-m.AddBlock(new Reflex({hidden_shape: [4,4]}));
-m.SetInput([mob.sym("x"), mob.sym("y"), mob.sym("z")]);
-var f = m.Compile();
-var code = mob.compile_glsl(f.output);
+var input_image = mob.tensor.sym([28,28], "pixel");
+var fcLayer = mob.layer.FullyConnected({output_shape: [10]});
+var output_class = fcLayer(input_image);
+var code = mob.compile_glsl(output_class);
 document.write("<pre>"+code.libs+code.code+code.value.join(";")+"</pre>");
 </script>
